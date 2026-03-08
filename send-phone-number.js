@@ -213,6 +213,10 @@ async function poll() {
     return;
   }
 
+  if (callLegs.length > 0) {
+    console.log('[sendphonenumber] RAW call legs:', JSON.stringify(callLegs, null, 2));
+  }
+
   const activeCalls = deduplicateCallLegs(callLegs);
   const activeOrigIds = new Set(activeCalls.keys());
 
