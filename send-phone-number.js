@@ -29,7 +29,7 @@ const CONFIG = {
     .filter(Boolean),
 
   /** How often to poll for new calls, in milliseconds */
-  pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '5000', 10),
+  pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '2000', 10),
 };
 
 // ── State ──────────────────────────────────────────────────────────────────
