@@ -158,6 +158,51 @@ async function notifyAllDispatchers(call) {
 // ── PBX API polling ────────────────────────────────────────────────────────
 
 /**
+ * Parse active call legs from the PBX HTML active-calls table.
+ *
+ * Each <tr> with an orig_id attribute represents a call leg.
+ * Columns: From, Caller ID, Dialed, To, Duration
+ *
+ * @param {string} html
+ * @returns {Object[]}
+ */
+function parseCallLegsFromHtml(html) {
+  const callLegs = [];
+  const rowRegex = /<tr\s([^>]*orig_id="[^"]*"[^>]*)>([\s\S]*?)<\/tr>/g;
+  let rowMatch;
+
+  while ((rowMatch = rowRegex.exec(html)) !== null) {
+    const attrs = rowMatch[1];
+    const cells = rowMatch[2];
+
+    const origId   = (attrs.match(/orig_id="([^"]*)"/)        || [])[1];
+    const gmtStart = (attrs.match(/data-gmt-start="([^"]*)"/) || [])[1];
+    const gmtAnswer = (cells.match(/data-gmt-answer="([^"]*)"/) || [])[1];
+
+    if (!origId) continue;
+
+    const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/g;
+    const cols = [];
+    let tdMatch;
+    while ((tdMatch = tdRegex.exec(cells)) !== null) {
+      cols.push(tdMatch[1].replace(/<[^>]*>/g, '').trim());
+    }
+
+    callLegs.push({
+      orig_id:    origId,
+      from:       cols[0] || '',
+      caller_id:  cols[1] || '',
+      dialed:     cols[2] || '',
+      to:         cols[3] || '',
+      gmt_start:  gmtStart  || '',
+      gmt_answer: gmtAnswer || null,
+    });
+  }
+
+  return callLegs;
+}
+
+/**
  * Fetch the current active call legs from the PBX API.
  *
  * @returns {Promise<Object[]>}
@@ -177,7 +222,7 @@ function fetchActiveCallLegs() {
       path: url.pathname + url.search,
       method: 'GET',
       headers: {
-        Accept: 'application/json',
+        Accept: 'text/html,application/json',
         ...(CONFIG.pbxBearerToken
           ? { Authorization: `Bearer ${CONFIG.pbxBearerToken}` }
           : {}),
@@ -188,10 +233,11 @@ function fetchActiveCallLegs() {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
+        // Try JSON first; fall back to HTML parsing
         try {
           resolve(JSON.parse(data));
-        } catch (e) {
-          reject(new Error('Invalid JSON from PBX API'));
+        } catch (_) {
+          resolve(parseCallLegsFromHtml(data));
         }
       });
     });
@@ -211,10 +257,6 @@ async function poll() {
   } catch (err) {
     console.error('[sendphonenumber] Error fetching active calls:', err.message);
     return;
-  }
-
-  if (callLegs.length > 0) {
-    console.log('[sendphonenumber] RAW call legs:', JSON.stringify(callLegs, null, 2));
   }
 
   const activeCalls = deduplicateCallLegs(callLegs);
