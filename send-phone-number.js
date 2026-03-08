@@ -29,7 +29,7 @@ const CONFIG = {
     .filter(Boolean),
 
   /** How often to poll for new calls, in milliseconds */
-  pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '2000', 10),
+  pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '500', 10),
 };
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -39,6 +39,13 @@ const CONFIG = {
  * Cleared when a call disappears from the active list.
  */
 const notifiedCalls = new Set();
+
+/**
+ * Calls seen in the previous poll but not yet notified (e.g. appeared and
+ * disappeared within a single poll interval before we could send).
+ * @type {Map<string, Object>}
+ */
+const pendingCalls = new Map();
 
 const emitter = new EventEmitter();
 
@@ -211,6 +218,7 @@ async function poll() {
 
   // Notify dispatchers for calls we haven't seen yet
   for (const [origId, call] of activeCalls) {
+    pendingCalls.delete(origId); // it's still active, no longer pending
     if (!notifiedCalls.has(origId)) {
       console.log(
         `[sendphonenumber] New call: ${call.from} (${call.callerId}) → ${call.dialed}` +
@@ -226,7 +234,30 @@ async function poll() {
   for (const origId of notifiedCalls) {
     if (!activeOrigIds.has(origId)) {
       notifiedCalls.delete(origId);
+      pendingCalls.delete(origId);
       emitter.emit('call_ended', origId);
+    }
+  }
+
+  // Notify calls that appeared last poll but vanished before this poll ran
+  // (picked up faster than the poll interval)
+  for (const [origId, call] of pendingCalls) {
+    if (!activeOrigIds.has(origId)) {
+      console.log(
+        `[sendphonenumber] Fast-pickup call: ${call.from} (${call.callerId}) → ${call.dialed}` +
+        ` ringing [${call.ringingExtensions.join(', ')}]`
+      );
+      notifiedCalls.add(origId);
+      emitter.emit('call', call);
+      await notifyAllDispatchers(call);
+      pendingCalls.delete(origId);
+    }
+  }
+
+  // Track newly seen calls in case they vanish next poll
+  for (const [origId, call] of activeCalls) {
+    if (!notifiedCalls.has(origId)) {
+      pendingCalls.set(origId, call);
     }
   }
 }
