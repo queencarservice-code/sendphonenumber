@@ -311,6 +311,29 @@ async function poll() {
 // ── Public API ─────────────────────────────────────────────────────────────
 
 /**
+ * Schedule a clean process exit at the next 3:00 AM local time.
+ * The process manager (PM2 / systemd) will restart the process,
+ * refreshing the PBX session before it expires.
+ */
+function scheduleDailyRestart() {
+  const now = new Date();
+  const next3am = new Date(now);
+  next3am.setHours(3, 0, 0, 0);
+  if (next3am <= now) next3am.setDate(next3am.getDate() + 1);
+
+  const delay = next3am - now;
+  console.log(
+    `[sendphonenumber] Daily restart scheduled for ${next3am.toLocaleString()} ` +
+    `(in ${Math.round(delay / 60000)} min)`
+  );
+
+  setTimeout(() => {
+    console.log('[sendphonenumber] 3AM restart — refreshing PBX session.');
+    process.exit(0);
+  }, delay);
+}
+
+/**
  * Start polling the PBX for active calls and notifying dispatchers.
  *
  * @returns {{ stop: Function, on: Function }} - Control handle
@@ -318,6 +341,7 @@ async function poll() {
 function start() {
   console.log('[sendphonenumber] Starting — polling every', CONFIG.pollIntervalMs, 'ms');
 
+  scheduleDailyRestart();
   poll(); // immediate first run
   const timer = setInterval(poll, CONFIG.pollIntervalMs);
 
